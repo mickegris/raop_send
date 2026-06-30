@@ -10,6 +10,8 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::time::Duration;
 
+use crate::codec::Codec;
+
 /// Ports the device tells us to use (from the SETUP response).
 #[derive(Debug, Clone, Copy)]
 pub struct DevicePorts {
@@ -159,8 +161,32 @@ impl Rtsp {
         self.request("OPTIONS", "*", &[], None, &[])?.check("OPTIONS")
     }
 
-    pub fn announce(&mut self, client_ip: IpAddr, device_ip: IpAddr, sample_rate: u32) -> io::Result<()> {
-        // Unencrypted ALAC/PCM session: no a=rsaaeskey / a=aesiv lines.
+    pub fn announce(
+        &mut self,
+        client_ip: IpAddr,
+        device_ip: IpAddr,
+        sample_rate: u32,
+        codec: Codec,
+    ) -> io::Result<()> {
+        // Unencrypted session: no a=rsaaeskey / a=aesiv lines. The media
+        // description MUST match what run_audio actually sends, otherwise the
+        // receiver decodes the wrong format and produces noise/silence.
+        let media = match codec {
+            Codec::Alac => format!(
+                "m=audio 0 RTP/AVP 96\r\n\
+                 a=rtpmap:96 AppleLossless\r\n\
+                 a=fmtp:96 352 0 16 40 10 14 2 255 0 0 {sr}\r\n",
+                sr = sample_rate,
+            ),
+            // Raw 16-bit big-endian PCM (cn=0). Experimental: not all RAOP
+            // servers accept an L16 announce on the legacy path; ALAC is the
+            // interoperable default.
+            Codec::Pcm => format!(
+                "m=audio 0 RTP/AVP 96\r\n\
+                 a=rtpmap:96 L16/{sr}/2\r\n",
+                sr = sample_rate,
+            ),
+        };
         let sid = self.uri.rsplit('/').next().unwrap_or("0").to_string();
         let sdp = format!(
             "v=0\r\n\
@@ -168,13 +194,11 @@ impl Rtsp {
              s=iTunes\r\n\
              c=IN IP4 {device}\r\n\
              t=0 0\r\n\
-             m=audio 0 RTP/AVP 96\r\n\
-             a=rtpmap:96 AppleLossless\r\n\
-             a=fmtp:96 352 0 16 40 10 14 2 255 0 0 {sr}\r\n",
+             {media}",
             sid = sid,
             client = client_ip,
             device = device_ip,
-            sr = sample_rate,
+            media = media,
         );
         let uri = self.uri.clone();
         self.request("ANNOUNCE", &uri, &[], Some("application/sdp"), sdp.as_bytes())?

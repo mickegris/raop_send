@@ -41,7 +41,7 @@ fn usage() -> ! {
            --host <IP>        speaker address (required)\n  \
            --port <N>         RTSP port (default 5000)\n  \
            --volume <0-100>   playback volume (default 50; 0 = mute)\n  \
-           --codec <alac|pcm> audio codec (default alac)\n  \
+           --codec <alac|pcm> audio codec (default alac; pcm is experimental)\n  \
            --latency <frames> buffer ahead of playout (default 88200 = 2.0 s)\n  \
            -h, --help         this help\n\n\
          INPUT: interleaved little-endian 16-bit stereo PCM at 44100 Hz.\n\n\
@@ -128,7 +128,7 @@ fn run() -> io::Result<()> {
     // --- RTSP handshake -----------------------------------------------------
     let mut rtsp = Rtsp::connect(device, client_ip)?;
     rtsp.options()?;
-    rtsp.announce(client_ip, args.host, SAMPLE_RATE)?;
+    rtsp.announce(client_ip, args.host, SAMPLE_RATE, args.codec)?;
     let dports = rtsp.setup(control_port, timing_port)?;
 
     let seq_start: u16 = rand::random();

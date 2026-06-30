@@ -41,7 +41,7 @@ cat /path/to/mpd.fifo | ./target/release/raop_send --host 10.0.1.155
 | `--host <IP>` | (required) | Speaker address |
 | `--port <N>` | `5000` | RTSP port |
 | `--volume <0-100>` | `50` | 0 = mute, 100 = 0 dB |
-| `--codec <alac\|pcm>` | `alac` | Audio codec (speaker advertises `cn=0,1`) |
+| `--codec <alac\|pcm>` | `alac` | Audio codec. `pcm` is experimental (L16 announce; ALAC is the interoperable path) |
 | `--latency <frames>` | `88200` | Buffer ahead of playout (2.0 s) |
 
 ## How it works
