@@ -1,0 +1,20 @@
+[package]
+name = "raop_send"
+version = "0.1.0"
+edition = "2021"
+description = "Send raw PCM from stdin to an AirPlay 1 (RAOP) speaker"
+license = "MIT"
+
+[[bin]]
+name = "raop_send"
+path = "src/main.rs"
+
+[dependencies]
+# Only dependency: random session ids / ssrc / starting sequence.
+rand = "0.8"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

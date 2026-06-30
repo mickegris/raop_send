@@ -1,0 +1,7 @@
+/target
+**/*.rs.bk
+*.pcap
+
+# Personal/local scratch files (never committed)
+*.local.sh
+*.local
