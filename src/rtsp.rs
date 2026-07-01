@@ -103,12 +103,24 @@ impl Rtsp {
         }
         req.push_str("\r\n");
 
+        eprintln!("raop_send: >> {} {} (CSeq {}, {} body bytes)", method, uri, self.cseq, body.len());
         self.writer.write_all(req.as_bytes())?;
         if !body.is_empty() {
             self.writer.write_all(body)?;
         }
         self.writer.flush()?;
-        self.read_response()
+        let resp = self.read_response().map_err(|e| {
+            eprintln!("raop_send: << {} FAILED waiting for response: {}", method, e);
+            e
+        })?;
+        eprintln!(
+            "raop_send: << {} {} ({} headers, {} body bytes)",
+            method,
+            resp.status,
+            resp.headers.len(),
+            resp.body.len()
+        );
+        Ok(resp)
     }
 
     fn read_response(&mut self) -> io::Result<Response> {
@@ -125,6 +137,7 @@ impl Rtsp {
             .nth(1)
             .and_then(|s| s.parse::<u16>().ok())
             .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "bad status line"))?;
+        eprintln!("raop_send:    status line: {}", line.trim_end());
 
         let mut headers = HashMap::new();
         loop {
