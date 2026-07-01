@@ -130,30 +130,14 @@ fn run() -> io::Result<()> {
     rtsp.options()?;
     rtsp.announce(client_ip, args.host, SAMPLE_RATE, args.codec)?;
     let dports = rtsp.setup(control_port, timing_port)?;
-
-    let seq_start: u16 = rand::random();
-    let rtp_start: u32 = rand::random();
-    let ssrc: u32 = rand::random();
-
-    rtsp.record(seq_start, rtp_start)?;
-    rtsp.set_volume(volume_db(args.volume))?;
-
-    eprintln!(
-        "raop_send: streaming to {} [{}], codec={}, vol={} ({:.1} dB), latency={} frames",
-        args.host,
-        device,
-        match args.codec {
-            Codec::Alac => "alac",
-            Codec::Pcm => "pcm",
-        },
-        args.volume,
-        volume_db(args.volume),
-        args.latency,
-    );
     eprintln!(
         "raop_send: device ports server={} control={} timing={}",
         dports.server, dports.control, dports.timing
     );
+
+    let seq_start: u16 = rand::random();
+    let rtp_start: u32 = rand::random();
+    let ssrc: u32 = rand::random();
 
     // --- data plane ---------------------------------------------------------
     let device_audio = SocketAddr::new(args.host, dports.server);
@@ -168,9 +152,31 @@ fn run() -> io::Result<()> {
         history: Mutex::new(History::new(2048)), // ~16 s of packets, fixed memory
     });
 
+    // Strict Linkplay/WiiMu receivers begin probing our advertised timing port
+    // right after SETUP and withhold the RECORD response until the NTP timing
+    // exchange completes. The timing (and retransmit) responders must therefore
+    // be live *before* RECORD, or the handshake deadlocks. SYNC is started only
+    // once the device is recording.
     stream::spawn_timing(timing_sock, device_timing, clock.clone());
     stream::spawn_retransmit(control_sock.try_clone()?, device_control, shared.clone());
+
+    rtsp.record(seq_start, rtp_start)?;
+    rtsp.set_volume(volume_db(args.volume))?;
+
     stream::spawn_sync(control_sock.try_clone()?, device_control, shared.clone());
+
+    eprintln!(
+        "raop_send: streaming to {} [{}], codec={}, vol={} ({:.1} dB), latency={} frames",
+        args.host,
+        device,
+        match args.codec {
+            Codec::Alac => "alac",
+            Codec::Pcm => "pcm",
+        },
+        args.volume,
+        volume_db(args.volume),
+        args.latency,
+    );
 
     // Keep the idle RTSP TCP connection alive while audio flows.
     let rtsp = Arc::new(Mutex::new(rtsp));
