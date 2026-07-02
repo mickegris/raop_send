@@ -1,7 +1,7 @@
 //! raop_send — pipe raw PCM (s16le, 44100 Hz, stereo) from stdin to an
 //! AirPlay-1 (RAOP) speaker.
 //!
-//!     ffmpeg -i song.flac -f s16le -ar 44100 -ac 2 - | raop_send --host 10.0.1.155
+//!     ffmpeg -i song.flac -f s16le -ar 44100 -ac 2 - | raop_send --host 192.168.1.50
 //!
 //! One job, done carefully: unencrypted realtime RAOP with correct timing,
 //! SYNC and retransmit so strict (Linkplay/WiiMu) receivers keep playing.
@@ -55,7 +55,7 @@ fn usage() -> ! {
            -h, --help         this help\n\n\
          INPUT: interleaved little-endian 16-bit stereo PCM at 44100 Hz.\n\n\
          EXAMPLE:\n  \
-           ffmpeg -i in.flac -f s16le -ar 44100 -ac 2 - | raop_send --host 10.0.1.155\n  \
+           ffmpeg -i in.flac -f s16le -ar 44100 -ac 2 - | raop_send --host 192.168.1.50\n  \
            ffmpeg -i in.flac -f s16le -ar 44100 -ac 2 - | raop_send --host Office\n"
     );
     exit(2);

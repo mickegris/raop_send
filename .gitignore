@@ -5,3 +5,14 @@
 # Personal/local scratch files (never committed)
 *.local.sh
 *.local
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+.idea/
+
+# Claude Code local settings (personal, machine-specific)
+.claude/settings.local.json

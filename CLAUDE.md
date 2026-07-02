@@ -7,7 +7,12 @@ Guidance for Claude Code when working in this repository.
 `raop_send` does exactly one thing: read raw PCM from **stdin** and stream it to an
 **AirPlay 1 (RAOP)** speaker over the network. It exists to replace `raop_play`/libraop,
 which played ~1 second then went silent on the user's Linkplay/WiiMu-based Audio Pro C
-speakers (tested on a C10 at `10.0.1.155`).
+speakers (tested on a C10).
+
+The protocol implementation is generic RAOP (NTP timing/SYNC/retransmit, standard RTSP
+verbs), so it should work against other AirPlay 1 receivers too — treat a bug report from
+different hardware as legitimate, not as scope creep, as long as the fix is still "make
+RAOP work correctly" and not a new feature.
 
 Scope is deliberately narrow. Do not add features outside "PCM in → one AirPlay-1
 speaker." No GUI, no playlist logic, no transcoding, no LMS/bridge layer.
@@ -75,10 +80,10 @@ follow pyatv `raop/packets.py`; the ALAC frame mirrors owntone `alac_encode_unco
 
 ```sh
 cargo build --release          # the entire build
-./target/release/raop_send --host 10.0.1.155     # reads PCM from stdin
+./target/release/raop_send --host 192.168.1.50   # reads PCM from stdin
 
 # realistic test:
-ffmpeg -i song.flac -f s16le -ar 44100 -ac 2 - | ./target/release/raop_send --host 10.0.1.155
+ffmpeg -i song.flac -f s16le -ar 44100 -ac 2 - | ./target/release/raop_send --host 192.168.1.50
 ```
 
 There are no automated tests; this is verified against real hardware on the user's LAN
