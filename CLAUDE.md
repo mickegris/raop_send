@@ -47,11 +47,18 @@ These rule out encryption as the cause; do not add RSA/FairPlay to chase this bu
 
 ```
 src/main.rs    CLI parsing, RTSP handshake orchestration, keepalive, thread wiring
+src/mdns.rs    one-shot mDNS-SD resolver: --host <name> -> _raop._tcp IP:port
 src/rtsp.rs    RTSP/TCP client: OPTIONS/ANNOUNCE/SETUP/RECORD/SET_PARAMETER/TEARDOWN
 src/stream.rs  data plane: paced RTP audio + timing/sync/retransmit threads + History ring
 src/codec.rs   ALAC (uncompressed) and big-endian PCM encoders
 src/clock.rs   monotonic NTP clock (won't jump if the system clock is stepped)
+src/log.rs     global verbosity level (-q/-v) + the `vlog!` macro
 ```
+
+Diagnostic detail (RTSP verb tracing, mDNS steps, the timing-probe confirmation) lives
+behind `vlog!(2, ...)` (`-v`/`--verbose`), not as scaffolding that gets deleted after each
+debugging session — keep new protocol-level traces gated the same way instead of bare
+`eprintln!`.
 
 Reference sources for the wire formats (keep parity if changing them): packet layouts
 follow pyatv `raop/packets.py`; the ALAC frame mirrors owntone `alac_encode_uncompressed`.

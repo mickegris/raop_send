@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use crate::clock::Clock;
 use crate::codec::{encode_alac, encode_pcm_be, Codec};
+use crate::vlog;
 
 pub const SAMPLE_RATE: u32 = 44100;
 pub const FRAMES_PER_PACKET: u32 = 352;
@@ -63,9 +64,14 @@ pub struct Shared {
 pub fn spawn_timing(sock: UdpSocket, device_timing: SocketAddr, clock: Clock) -> JoinHandle<()> {
     thread::spawn(move || {
         let mut buf = [0u8; 64];
+        let mut announced = false;
         loop {
             match sock.recv_from(&mut buf) {
                 Ok((n, _)) if n >= 32 => {
+                    if !announced {
+                        vlog!(2, "raop_send: timing probe received — clock sync active");
+                        announced = true;
+                    }
                     let mut r = [0u8; 32];
                     r[0] = 0x80;
                     r[1] = 0xD3; // timing response, marker bit set

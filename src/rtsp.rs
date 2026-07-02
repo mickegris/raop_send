@@ -11,6 +11,7 @@ use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::time::Duration;
 
 use crate::codec::Codec;
+use crate::vlog;
 
 /// Ports the device tells us to use (from the SETUP response).
 #[derive(Debug, Clone, Copy)]
@@ -103,12 +104,25 @@ impl Rtsp {
         }
         req.push_str("\r\n");
 
+        vlog!(2, "raop_send: >> {} {} (CSeq {}, {} body bytes)", method, uri, self.cseq, body.len());
         self.writer.write_all(req.as_bytes())?;
         if !body.is_empty() {
             self.writer.write_all(body)?;
         }
         self.writer.flush()?;
-        self.read_response()
+        let resp = self.read_response().map_err(|e| {
+            vlog!(2, "raop_send: << {} FAILED waiting for response: {}", method, e);
+            e
+        })?;
+        vlog!(
+            2,
+            "raop_send: << {} {} ({} headers, {} body bytes)",
+            method,
+            resp.status,
+            resp.headers.len(),
+            resp.body.len()
+        );
+        Ok(resp)
     }
 
     fn read_response(&mut self) -> io::Result<Response> {

@@ -8,6 +8,8 @@
 
 mod clock;
 mod codec;
+mod log;
+mod mdns;
 mod rtsp;
 mod stream;
 
@@ -25,44 +27,53 @@ use rtsp::Rtsp;
 use stream::{History, Shared, SAMPLE_RATE};
 
 struct Args {
-    host: IpAddr,
-    port: u16,
+    /// Either a literal IP or an mDNS `_raop._tcp` instance name (e.g.
+    /// "Kontoret"), resolved in `run()`.
+    host: String,
+    /// `None` means "use the discovered port, or 5000 if not discovering".
+    port: Option<u16>,
     volume: u8,
     codec: Codec,
     latency: u32,
+    /// 0 = errors only, 1 = status (default), 2 = protocol trace.
+    verbosity: u8,
 }
 
 fn usage() -> ! {
     eprintln!(
         "raop_send — send raw PCM from stdin to an AirPlay-1 speaker\n\n\
          USAGE:\n  \
-           <pcm source> | raop_send --host <IP> [options]\n\n\
+           <pcm source> | raop_send --host <IP|name> [options]\n\n\
          OPTIONS:\n  \
-           --host <IP>        speaker address (required)\n  \
-           --port <N>         RTSP port (default 5000)\n  \
+           --host <IP|name>   speaker address, or its mDNS instance name (e.g. \"Kontoret\") (required)\n  \
+           --port <N>         RTSP port (default 5000, or the discovered port)\n  \
            --volume <0-100>   playback volume (default 50; 0 = mute)\n  \
            --codec <alac|pcm> audio codec (default alac; pcm is experimental)\n  \
            --latency <frames> buffer ahead of playout (default 88200 = 2.0 s)\n  \
+           -q, --quiet        errors only\n  \
+           -v, --verbose      protocol-level trace (RTSP verbs, mDNS steps)\n  \
            -h, --help         this help\n\n\
          INPUT: interleaved little-endian 16-bit stereo PCM at 44100 Hz.\n\n\
          EXAMPLE:\n  \
-           ffmpeg -i in.flac -f s16le -ar 44100 -ac 2 - | raop_send --host 10.0.1.155\n"
+           ffmpeg -i in.flac -f s16le -ar 44100 -ac 2 - | raop_send --host 10.0.1.155\n  \
+           ffmpeg -i in.flac -f s16le -ar 44100 -ac 2 - | raop_send --host Kontoret\n"
     );
     exit(2);
 }
 
 fn parse_args() -> Args {
-    let mut host: Option<IpAddr> = None;
-    let mut port: u16 = 5000;
+    let mut host: Option<String> = None;
+    let mut port: Option<u16> = None;
     let mut volume: u8 = 50;
     let mut codec = Codec::Alac;
     let mut latency: u32 = 88200;
+    let mut verbosity: u8 = 1;
 
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--host" => host = Some(req(&mut it, "--host").parse().unwrap_or_else(|_| die("bad --host IP"))),
-            "--port" => port = req(&mut it, "--port").parse().unwrap_or_else(|_| die("bad --port")),
+            "--host" => host = Some(req(&mut it, "--host")),
+            "--port" => port = Some(req(&mut it, "--port").parse().unwrap_or_else(|_| die("bad --port"))),
             "--volume" => volume = req(&mut it, "--volume").parse().unwrap_or_else(|_| die("bad --volume")),
             "--latency" => latency = req(&mut it, "--latency").parse().unwrap_or_else(|_| die("bad --latency")),
             "--codec" => {
@@ -72,6 +83,8 @@ fn parse_args() -> Args {
                     _ => die("--codec must be alac or pcm"),
                 }
             }
+            "-q" | "--quiet" => verbosity = 0,
+            "-v" | "--verbose" => verbosity = 2,
             "-h" | "--help" => usage(),
             other => die(&format!("unknown argument: {}", other)),
         }
@@ -86,6 +99,7 @@ fn parse_args() -> Args {
         volume: volume.min(100),
         codec,
         latency,
+        verbosity,
     }
 }
 
@@ -115,7 +129,33 @@ fn volume_db(vol: u8) -> f32 {
 
 fn run() -> io::Result<()> {
     let args = parse_args();
-    let device = SocketAddr::new(args.host, args.port);
+    log::set(args.verbosity);
+
+    // `--host` is either a literal IP or an mDNS `_raop._tcp` instance name.
+    let (host_ip, discovered_port): (IpAddr, Option<u16>) = match args.host.parse::<IpAddr>() {
+        Ok(ip) => (ip, None),
+        Err(_) => {
+            vlog!(2, "raop_send: resolving \"{}\" via mDNS...", args.host);
+            let found = mdns::resolve(&args.host, Duration::from_secs(3)).map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("mDNS lookup for \"{}\" failed: {}", args.host, e),
+                )
+            })?;
+            vlog!(
+                1,
+                "raop_send: resolved \"{}\" -> {}:{} ({})",
+                args.host,
+                found.addr,
+                found.port,
+                found.instance
+            );
+            (IpAddr::V4(found.addr), Some(found.port))
+        }
+    };
+    let port = args.port.unwrap_or_else(|| discovered_port.unwrap_or(5000));
+
+    let device = SocketAddr::new(host_ip, port);
     let client_ip = local_ip_for(device)?;
 
     // Bind our control + timing sockets first so we can advertise their ports
@@ -128,11 +168,14 @@ fn run() -> io::Result<()> {
     // --- RTSP handshake -----------------------------------------------------
     let mut rtsp = Rtsp::connect(device, client_ip)?;
     rtsp.options()?;
-    rtsp.announce(client_ip, args.host, SAMPLE_RATE, args.codec)?;
+    rtsp.announce(client_ip, host_ip, SAMPLE_RATE, args.codec)?;
     let dports = rtsp.setup(control_port, timing_port)?;
-    eprintln!(
+    vlog!(
+        2,
         "raop_send: device ports server={} control={} timing={}",
-        dports.server, dports.control, dports.timing
+        dports.server,
+        dports.control,
+        dports.timing
     );
 
     let seq_start: u16 = rand::random();
@@ -140,9 +183,9 @@ fn run() -> io::Result<()> {
     let ssrc: u32 = rand::random();
 
     // --- data plane ---------------------------------------------------------
-    let device_audio = SocketAddr::new(args.host, dports.server);
-    let device_control = SocketAddr::new(args.host, dports.control);
-    let device_timing = SocketAddr::new(args.host, dports.timing);
+    let device_audio = SocketAddr::new(host_ip, dports.server);
+    let device_control = SocketAddr::new(host_ip, dports.control);
+    let device_timing = SocketAddr::new(host_ip, dports.timing);
 
     let clock = Clock::new();
     let shared = Arc::new(Shared {
@@ -165,7 +208,8 @@ fn run() -> io::Result<()> {
 
     stream::spawn_sync(control_sock.try_clone()?, device_control, shared.clone());
 
-    eprintln!(
+    vlog!(
+        1,
         "raop_send: streaming to {} [{}], codec={}, vol={} ({:.1} dB), latency={} frames",
         args.host,
         device,
@@ -210,7 +254,7 @@ fn run() -> io::Result<()> {
 
     stop.store(true, Ordering::Relaxed);
     let _ = rtsp.lock().unwrap().teardown();
-    eprintln!("raop_send: stream ended");
+    vlog!(1, "raop_send: stream ended");
     result
 }
 
