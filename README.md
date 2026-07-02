@@ -31,7 +31,7 @@ Input must be **interleaved little-endian 16-bit stereo PCM at 44100 Hz**.
 ffmpeg -i song.flac -f s16le -ar 44100 -ac 2 - | ./target/release/raop_send --host 10.0.1.155
 
 # Or by its mDNS/Bonjour instance name instead of an IP:
-ffmpeg -i song.flac -f s16le -ar 44100 -ac 2 - | ./target/release/raop_send --host Kontoret
+ffmpeg -i song.flac -f s16le -ar 44100 -ac 2 - | ./target/release/raop_send --host Office
 
 # From MPD (configure a fifo/pipe output emitting s16le 44100:16:2), e.g.:
 cat /path/to/mpd.fifo | ./target/release/raop_send --host 10.0.1.155
@@ -41,7 +41,7 @@ cat /path/to/mpd.fifo | ./target/release/raop_send --host 10.0.1.155
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--host <IP\|name>` | (required) | Speaker address, or its `_raop._tcp` mDNS instance name (e.g. `Kontoret`) |
+| `--host <IP\|name>` | (required) | Speaker address, or its `_raop._tcp` mDNS instance name (e.g. `Office`) |
 | `--port <N>` | `5000`, or the discovered port | RTSP port |
 | `--volume <0-100>` | `50` | 0 = mute, 100 = 0 dB |
 | `--codec <alac\|pcm>` | `alac` | Audio codec. `pcm` is experimental (L16 announce; ALAC is the interoperable path) |

@@ -28,7 +28,7 @@ use stream::{History, Shared, SAMPLE_RATE};
 
 struct Args {
     /// Either a literal IP or an mDNS `_raop._tcp` instance name (e.g.
-    /// "Kontoret"), resolved in `run()`.
+    /// "Office"), resolved in `run()`.
     host: String,
     /// `None` means "use the discovered port, or 5000 if not discovering".
     port: Option<u16>,
@@ -45,7 +45,7 @@ fn usage() -> ! {
          USAGE:\n  \
            <pcm source> | raop_send --host <IP|name> [options]\n\n\
          OPTIONS:\n  \
-           --host <IP|name>   speaker address, or its mDNS instance name (e.g. \"Kontoret\") (required)\n  \
+           --host <IP|name>   speaker address, or its mDNS instance name (e.g. \"Office\") (required)\n  \
            --port <N>         RTSP port (default 5000, or the discovered port)\n  \
            --volume <0-100>   playback volume (default 50; 0 = mute)\n  \
            --codec <alac|pcm> audio codec (default alac; pcm is experimental)\n  \
@@ -56,7 +56,7 @@ fn usage() -> ! {
          INPUT: interleaved little-endian 16-bit stereo PCM at 44100 Hz.\n\n\
          EXAMPLE:\n  \
            ffmpeg -i in.flac -f s16le -ar 44100 -ac 2 - | raop_send --host 10.0.1.155\n  \
-           ffmpeg -i in.flac -f s16le -ar 44100 -ac 2 - | raop_send --host Kontoret\n"
+           ffmpeg -i in.flac -f s16le -ar 44100 -ac 2 - | raop_send --host Office\n"
     );
     exit(2);
 }

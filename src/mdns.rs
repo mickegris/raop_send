@@ -1,5 +1,5 @@
 //! Minimal one-shot mDNS-SD resolver for `_raop._tcp` (RFC 6762/6763), just
-//! enough to turn a friendly AirPlay instance name (e.g. "Kontoret") into an
+//! enough to turn a friendly AirPlay instance name (e.g. "Office") into an
 //! address + port so `--host` can take a name instead of an IP.
 //!
 //! Queries request a *unicast* reply (the "QU" bit on the question's class)
@@ -205,7 +205,7 @@ impl RecordDb {
     }
 }
 
-/// `instance` is e.g. `["AABBCCDDEEFF@Kontoret", "_raop", "_tcp", "local"]`.
+/// `instance` is e.g. `["AABBCCDDEEFF@Office", "_raop", "_tcp", "local"]`.
 /// The friendly name is the first label with any "xx@" device-id prefix
 /// stripped.
 fn friendly_matches(instance: &[String], name: &str) -> bool {
