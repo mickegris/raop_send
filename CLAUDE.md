@@ -27,6 +27,16 @@ The most likely place a device-specific failure hides is the **SYNC latency-anch
 in `stream.rs` (`now_without_latency = head - latency`). That is the first knob to tune
 against hardware, along with `--latency`.
 
+## Confirmed: RECORD blocks on the timing responder
+
+On the target speaker, RECORD is **not answered until the device's NTP timing probe (to
+the `timing_port` from SETUP) gets a reply.** Spawning `spawn_timing`/`spawn_retransmit`
+after `rtsp.record()` deadlocks: the device sends its RECORD response as soon as we ack a
+timing probe, so `record()` hangs until a 10s TCP read timeout (`os error 11`, EAGAIN) if
+nothing is listening on that port yet. Fixed in `main.rs` by binding the UDP responders
+before calling `record()`; `spawn_sync` still starts after, once actually recording. Do
+not reorder this — verified against hardware (full-track playback on a C10) after the fix.
+
 ## Confirmed facts about the target speaker (mDNS `_raop._tcp` TXT)
 
 `et=0,4` → unencrypted is allowed (we use `et=0`, no crypto). `cn=0,1` → both PCM and

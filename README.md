@@ -61,6 +61,8 @@ than growing memory.
 
 ## Status / not yet implemented
 
+Verified: full-track playback on an Audio Pro C10 (Linkplay/WiiMu).
+
 - mDNS discovery (pass `--host` for now).
 - Encryption (`et=1` RSA / FairPlay) — not needed for this speaker.
 - AirPlay 2 (buffered audio, HomeKit pairing).
