@@ -19,8 +19,8 @@ RAOP (`et=0`) and defaults to **ALAC** (`cn=1`).
 ## A note on how this was built
 
 This project was largely **vibe coded**: built through iterative pair-programming sessions
-with Claude Code (an AI coding assistant), with real hardware runs — not a test suite, there
-isn't one — as the actual verification step for every fix. Read the code with that in mind.
+with Claude Code, with real hardware runs — not a test suite, there isn't one — as the
+actual verification step for every fix. Read the code with that in mind.
 
 ## Build
 
@@ -43,9 +43,18 @@ ffmpeg -i song.flac -f s16le -ar 44100 -ac 2 - | ./target/release/raop_send --ho
 
 # Or by its mDNS/Bonjour instance name instead of an IP:
 ffmpeg -i song.flac -f s16le -ar 44100 -ac 2 - | ./target/release/raop_send --host Office
+```
 
-# From MPD (configure a fifo/pipe output emitting s16le 44100:16:2), e.g.:
-cat /path/to/mpd.fifo | ./target/release/raop_send --host 192.168.1.50
+From MPD, via its [pipe output plugin](https://mpd.readthedocs.io/en/stable/plugins.html#pipe)
+(MPD execs `command` and writes raw PCM straight to its stdin — no FIFO needed):
+
+```
+audio_output {
+    type    "pipe"
+    name    "AirPlay Speaker"
+    command "/path/to/raop_send --host 192.168.1.50"
+    format  "44100:16:2"
+}
 ```
 
 ### Options
