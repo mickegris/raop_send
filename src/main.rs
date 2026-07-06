@@ -150,6 +150,13 @@ fn run() -> io::Result<()> {
                 found.port,
                 found.instance
             );
+            if found.airplay2 {
+                vlog!(
+                    1,
+                    "raop_send: note: \"{}\" also advertises AirPlay 2 (_airplay._tcp) — not yet supported, using AirPlay 1",
+                    args.host
+                );
+            }
             (IpAddr::V4(found.addr), Some(found.port))
         }
     };
