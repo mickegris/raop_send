@@ -207,7 +207,10 @@ impl RecordDb {
 
 /// `instance` is e.g. `["AABBCCDDEEFF@Office", "_raop", "_tcp", "local"]`.
 /// The friendly name is the first label with any "xx@" device-id prefix
-/// stripped.
+/// stripped. Exact case-insensitive match first; failing that, compare with
+/// punctuation stripped — devices name themselves things like
+/// "Mikael's Speaker" using a typographic apostrophe (U+2019) that can't be
+/// typed from a shell, so "Mikaels Speaker" and "Mikael's Speaker" must match.
 fn friendly_matches(instance: &[String], name: &str) -> bool {
     let first = match instance.first() {
         Some(l) => l.as_str(),
@@ -217,7 +220,16 @@ fn friendly_matches(instance: &[String], name: &str) -> bool {
         Some(i) => &first[i + 1..],
         None => first,
     };
-    friendly.eq_ignore_ascii_case(name)
+    friendly.eq_ignore_ascii_case(name) || canon(friendly) == canon(name)
+}
+
+/// Lowercase, keeping only alphanumerics and spaces, so apostrophe/dash
+/// variants can't block a match. Unicode letters (å, ö, ...) survive.
+fn canon(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ')
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// Read a DNS name at `buf[*pos..]`, following compression pointers, and
