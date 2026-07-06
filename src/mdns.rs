@@ -1,17 +1,14 @@
 //! Minimal one-shot mDNS-SD resolver for `_raop._tcp` (RFC 6762/6763), just
 //! enough to turn a friendly AirPlay instance name (e.g. "Office") into an
-//! address + port so `--host` can take a name instead of an IP. Also probes
-//! `_airplay._tcp` for the same name, purely to *detect* whether a device
-//! advertises AirPlay 2 as well — raop_send only speaks AirPlay 1 (RAOP), so
-//! this is reported to the caller rather than acted on.
+//! address + port so `--host` can take a name instead of an IP.
 //!
 //! Queries request a *unicast* reply (the "QU" bit on the question's class)
 //! so we can listen on an ephemeral UDP port instead of binding 5353, which
 //! avahi-daemon already holds on most Linux boxes. A compliant responder
-//! (avahi, Bonjour) answers a PTR query with the PTR plus the matching SRV/A
-//! records bundled in as additional data (RFC 6763 §12), so one round trip is
-//! normally enough; if a responder omits them we send one bounded follow-up
-//! query for just that instance's SRV + A.
+//! (avahi, Bonjour) answers a `_raop._tcp.local` PTR query with the PTR plus
+//! the matching SRV/A records bundled in as additional data (RFC 6763 §12),
+//! so one round trip is normally enough; if a responder omits them we send
+//! one bounded follow-up query for just that instance's SRV + A.
 
 use std::collections::HashMap;
 use std::io;
@@ -19,8 +16,7 @@ use std::net::{Ipv4Addr, UdpSocket};
 use std::time::{Duration, Instant};
 
 const MDNS_ADDR: &str = "224.0.0.251:5353";
-const SERVICE_RAOP: &str = "_raop._tcp.local";
-const SERVICE_AIRPLAY2: &str = "_airplay._tcp.local";
+const SERVICE: &str = "_raop._tcp.local";
 
 const TYPE_A: u16 = 1;
 const TYPE_PTR: u16 = 12;
@@ -28,79 +24,45 @@ const TYPE_SRV: u16 = 33;
 
 const CLASS_IN_QU: u16 = 0x8001; // IN, with the unicast-response bit set
 
-/// Extra time to keep listening, once a RAOP match resolves, in case the
-/// same device's `_airplay._tcp` answer arrives in a separate packet.
-const AIRPLAY2_SETTLE: Duration = Duration::from_millis(400);
-
 pub struct Discovered {
     pub addr: Ipv4Addr,
     pub port: u16,
     pub instance: String,
-    /// Whether the same name also advertises `_airplay._tcp` (AirPlay 2).
-    /// raop_send doesn't speak AirPlay 2 yet; this is informational.
-    pub airplay2: bool,
 }
 
-/// Resolve `name` against `_raop._tcp` instance names on the LAN, also
-/// checking whether it advertises `_airplay._tcp`. Matching is
-/// case-insensitive and ignores any "xx:xx:xx:xx:xx:xx@" device-id prefix
+/// Resolve `name` against `_raop._tcp` instance names on the LAN. Matching
+/// is case-insensitive and ignores any "xx:xx:xx:xx:xx:xx@" device-id prefix
 /// some RAOP servers put in front of the friendly name.
 pub fn resolve(name: &str, timeout: Duration) -> io::Result<Discovered> {
     let sock = UdpSocket::bind("0.0.0.0:0")?;
     sock.set_read_timeout(Some(Duration::from_millis(300)))?;
 
-    send_query(&sock, &[(SERVICE_RAOP, TYPE_PTR), (SERVICE_AIRPLAY2, TYPE_PTR)])?;
+    send_query(&sock, &[(SERVICE, TYPE_PTR)])?;
 
     let mut db = RecordDb::default();
     let mut buf = [0u8; 4096];
 
     let deadline = Instant::now() + timeout;
-    let mut resolved_at: Option<Instant> = None;
     while Instant::now() < deadline {
-        recv_into(&sock, &mut buf, &mut db);
-        if resolved_at.is_none() && db.find(SERVICE_RAOP, name).is_some() {
-            resolved_at = Some(Instant::now());
-        }
-        if let Some(t) = resolved_at {
-            if Instant::now() >= t + AIRPLAY2_SETTLE {
-                break;
+        if recv_into(&sock, &mut buf, &mut db) {
+            if let Some(found) = db.find(name) {
+                return Ok(found);
             }
         }
     }
 
     // Responder gave us a matching PTR but not (yet) its SRV/A — ask
     // directly, once, with a short bounded window.
-    if resolved_at.is_none() {
-        if let Some(instance) = db.matching_instance(SERVICE_RAOP, name) {
-            send_query(&sock, &[(&instance, TYPE_SRV), (&instance, TYPE_A)])?;
-            let deadline = Instant::now() + Duration::from_millis(500);
-            while Instant::now() < deadline {
-                recv_into(&sock, &mut buf, &mut db);
-                if db.find(SERVICE_RAOP, name).is_some() {
-                    break;
+    if let Some(instance) = db.matching_instance(name) {
+        send_query(&sock, &[(&instance, TYPE_SRV), (&instance, TYPE_A)])?;
+        let deadline = Instant::now() + Duration::from_millis(500);
+        while Instant::now() < deadline {
+            if recv_into(&sock, &mut buf, &mut db) {
+                if let Some(found) = db.find(name) {
+                    return Ok(found);
                 }
             }
         }
-    }
-
-    let airplay2 = db.has_instance(SERVICE_AIRPLAY2, name);
-    if let Some(found) = db.find(SERVICE_RAOP, name) {
-        return Ok(Discovered {
-            addr: found.0,
-            port: found.1,
-            instance: found.2,
-            airplay2,
-        });
-    }
-
-    if airplay2 {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            format!(
-                "\"{}\" only advertises AirPlay 2 (_airplay._tcp) via mDNS; raop_send speaks AirPlay 1 (_raop._tcp) only",
-                name
-            ),
-        ));
     }
 
     Err(io::Error::new(
@@ -109,12 +71,14 @@ pub fn resolve(name: &str, timeout: Duration) -> io::Result<Discovered> {
     ))
 }
 
-fn recv_into(sock: &UdpSocket, buf: &mut [u8], db: &mut RecordDb) {
-    if let Ok((n, _)) = sock.recv_from(buf) {
-        db.ingest(&buf[..n]);
+fn recv_into(sock: &UdpSocket, buf: &mut [u8], db: &mut RecordDb) -> bool {
+    match sock.recv_from(buf) {
+        Ok((n, _)) => {
+            db.ingest(&buf[..n]);
+            true
+        }
+        Err(_) => false, // timeout (WouldBlock/TimedOut) or a transient recv error
     }
-    // else: timeout (WouldBlock/TimedOut) or a transient recv error — ignored,
-    // the caller just loops again until its own deadline.
 }
 
 fn send_query(sock: &UdpSocket, questions: &[(&str, u16)]) -> io::Result<()> {
@@ -150,8 +114,7 @@ type Labels = Vec<String>;
 
 #[derive(Default)]
 struct RecordDb {
-    /// (service type queried, e.g. `_raop._tcp.local` -> instance target)
-    ptr: Vec<(Labels, Labels)>,
+    ptr: Vec<Labels>,
     srv: HashMap<Labels, (u16, Labels)>,
     a: HashMap<Labels, Ipv4Addr>,
 }
@@ -197,7 +160,7 @@ impl RecordDb {
                 TYPE_PTR => {
                     let mut p = pos;
                     if let Some(target) = read_name(buf, &mut p) {
-                        self.ptr.push((name, target));
+                        self.ptr.push(target);
                     }
                 }
                 TYPE_SRV if rdata.len() >= 6 => {
@@ -218,51 +181,27 @@ impl RecordDb {
         }
     }
 
-    /// Resolve `name` under `service` (e.g. `_raop._tcp.local`) to its
-    /// address, port and full instance name, if we've seen a complete
-    /// PTR -> SRV -> A chain for it.
-    fn find(&self, service: &str, name: &str) -> Option<(Ipv4Addr, u16, String)> {
-        for (svc, instance) in &self.ptr {
-            if !is_service(svc, service) || !friendly_matches(instance, name) {
+    fn find(&self, name: &str) -> Option<Discovered> {
+        for instance in &self.ptr {
+            if !friendly_matches(instance, name) {
                 continue;
             }
-            if let Some((port, target)) = self.srv.get(instance) {
-                if let Some(addr) = self.a.get(target) {
-                    return Some((*addr, *port, instance.join(".")));
-                }
-            }
+            let (port, target) = self.srv.get(instance)?;
+            let addr = self.a.get(target)?;
+            return Some(Discovered {
+                addr: *addr,
+                port: *port,
+                instance: instance.join("."),
+            });
         }
         None
     }
 
-    fn matching_instance(&self, service: &str, name: &str) -> Option<String> {
+    fn matching_instance(&self, name: &str) -> Option<String> {
         self.ptr
             .iter()
-            .find(|(svc, instance)| is_service(svc, service) && friendly_matches(instance, name))
-            .map(|(_, instance)| instance.join("."))
-    }
-
-    /// Whether `name` appears anywhere under `service`'s PTR answers, without
-    /// requiring SRV/A to also be resolved — used just to detect that a
-    /// service exists, not to connect to it.
-    fn has_instance(&self, service: &str, name: &str) -> bool {
-        self.ptr
-            .iter()
-            .any(|(svc, instance)| is_service(svc, service) && friendly_matches(instance, name))
-    }
-}
-
-/// Whether `labels` (a parsed domain name) equals the dotted `service`
-/// string (e.g. `_raop._tcp.local`), case-insensitively.
-fn is_service(labels: &[String], service: &str) -> bool {
-    let mut expected = service.split('.');
-    let mut actual = labels.iter();
-    loop {
-        match (expected.next(), actual.next()) {
-            (Some(e), Some(a)) if a.eq_ignore_ascii_case(e) => continue,
-            (None, None) => return true,
-            _ => return false,
-        }
+            .find(|i| friendly_matches(i, name))
+            .map(|i| i.join("."))
     }
 }
 
